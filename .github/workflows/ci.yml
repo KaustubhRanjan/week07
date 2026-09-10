@@ -1,8 +1,10 @@
+# Updated for SIT722 Task 7.1P: added push trigger, bumped actions to Node 24 (fixes Node 20 deprecation warning)
 name: CI Pipeline
 
 on:
-  # Manual trigger for the workflow
-  workflow_dispatch:
+  push:
+    branches: [main]
+     workflow_dispatch:
 
 
 jobs:
@@ -78,10 +80,10 @@ jobs:
     steps:
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -137,10 +139,10 @@ jobs:
     steps:
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Login to Azure
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
