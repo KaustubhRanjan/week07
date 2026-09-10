@@ -1,4 +1,4 @@
-# Updated for SIT722 Task 7.1P: added push trigger, bumped actions to Node 24 (fixes Node 20 deprecation warning)
+# Updated for SIT722 Task 7.1P: added push trigger, bumped actions to Node 24 (fixes Node 20 deprecation warning) hello
 name: CI Pipeline
 
 on:
