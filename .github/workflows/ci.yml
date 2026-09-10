@@ -1,11 +1,11 @@
-# Updated for SIT722 Task 7.1P: added push trigger, bumped actions to Node 24 (fixes Node 20 deprecation warning) hello
+# Updated for SIT722 Task 7.1P: added push trigger, bumped actions to Node 24 (fixes Node 20 deprecation warning)
 name: CI Pipeline
 
 on:
   push:
     branches: [main]
     # Manual trigger for the workflow
-     workflow_dispatch:
+  workflow_dispatch:
 
 
 jobs:
