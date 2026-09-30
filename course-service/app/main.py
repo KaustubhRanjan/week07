@@ -80,10 +80,12 @@ app.include_router(courses.router)
 
 
 @app.get("/", tags=["Health"])
+#  def root() -> dict[str, str]:
+#        raise RuntimeError("simulated regression")
 def root() -> dict[str, str]:
     return {
         "message": (
-            "KoalaTech University Course Service is running."
+            "KoalaTech University Course Service v2 is running."
         )
     }
 
