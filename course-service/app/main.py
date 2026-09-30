@@ -1,11 +1,14 @@
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from sqlalchemy.exc import OperationalError
+from fastapi import Depends, FastAPI, Response, status
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.orm import Session
 
-from app.db import Base, engine
+from app.db import Base, engine, get_db
 from app.routers import courses
 
 
@@ -15,6 +18,15 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Blue/green deployment metadata (SIT722 Task 10.3HD).
+# APP_VERSION is baked into the image at build time (the Git commit SHA),
+# so it moves with the container when the staging and production slots swap.
+# SLOT_NAME is a slot-sticky App Service setting, so it always reports
+# which slot is answering ("staging" or "production").
+APP_VERSION = os.getenv("APP_VERSION", "local")
+SLOT_NAME = os.getenv("SLOT_NAME", "local")
 
 
 def initialise_database() -> None:
@@ -77,8 +89,27 @@ def root() -> dict[str, str]:
 
 
 @app.get("/health", tags=["Health"])
-def health_check() -> dict[str, str]:
+def health_check(
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    """Readiness check used by App Service, the slot-swap warm-up
+    and the pipeline smoke tests. Returns 503 if the database is
+    unreachable so a broken release is never swapped into production."""
+    try:
+        db.execute(text("SELECT 1"))
+        database_status = "ok"
+    except SQLAlchemyError:
+        logger.exception("Health check could not reach the database.")
+        database_status = "unavailable"
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
     return {
-        "status": "healthy",
+        "status": (
+            "healthy" if database_status == "ok" else "unhealthy"
+        ),
         "service": "course-service",
+        "version": APP_VERSION,
+        "slot": SLOT_NAME,
+        "database": database_status,
     }

@@ -1,0 +1,53 @@
+# SIT722 Task 10.3HD: one-click manual rollback for course-service.
+# The previous release always sits in the staging slot after a swap,
+# so rolling back is simply swapping the slots again.
+name: Rollback course-service
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why are you rolling back?"
+        required: true
+        default: "Manual rollback"
+
+jobs:
+  rollback:
+    name: Swap production back to previous version
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: deploy-course-service
+      cancel-in-progress: false
+
+    env:
+      RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP }}
+      WEBAPP_NAME: ${{ vars.COURSE_WEBAPP_NAME }}
+
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v3
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Show versions before rollback
+        run: |
+          PROD_URL="https://$(az webapp show -g "$RESOURCE_GROUP" -n "$WEBAPP_NAME" --query defaultHostName -o tsv)"
+          STAGING_URL="https://$(az webapp show -g "$RESOURCE_GROUP" -n "$WEBAPP_NAME" --slot staging --query defaultHostName -o tsv)"
+          echo "PROD_URL=$PROD_URL" >> "$GITHUB_ENV"
+          echo "Reason: ${{ github.event.inputs.reason }}"
+          echo "Production: $(curl -s --max-time 15 "$PROD_URL/health")"
+          echo "Staging:    $(curl -s --max-time 15 "$STAGING_URL/health")"
+
+      - name: Swap slots
+        run: |
+          az webapp deployment slot swap \
+            -g "$RESOURCE_GROUP" \
+            -n "$WEBAPP_NAME" \
+            --slot staging \
+            --target-slot production
+
+      - name: Show production after rollback
+        run: |
+          sleep 10
+          curl -s --max-time 15 "$PROD_URL/health"; echo

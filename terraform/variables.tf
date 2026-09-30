@@ -51,3 +51,42 @@ variable "tags" {
         Practical  = "Week07"
     }
 }
+
+
+# ---------------------------------------------------------------------
+# SIT722 Task 10.3HD - blue/green deployment of course-service
+# ---------------------------------------------------------------------
+
+variable "course_app_name" {
+    description = "Globally unique App Service name for course-service (becomes <name>.azurewebsites.net)"
+    type        = string
+
+    validation {
+        condition     = can(regex("^[a-z0-9][a-z0-9-]{1,40}[a-z0-9]$", var.course_app_name))
+        error_message = "Use 3-42 lowercase letters, numbers and hyphens (it is also used for the database name)."
+    }
+}
+
+variable "course_image_name" {
+    description = "Repository name of the course-service image in ACR"
+    type        = string
+    default     = "koalatech-course-service"
+}
+
+variable "app_service_sku" {
+    description = "App Service plan SKU. Deployment slots need S1 (Standard) or higher."
+    type        = string
+    default     = "S1"
+}
+
+variable "postgres_location" {
+    description = "Region for PostgreSQL. Leave null to use the resource group location; set it if your subscription blocks PostgreSQL in that region."
+    type        = string
+    default     = null
+}
+
+variable "create_resource_group" {
+    description = "true = Terraform creates the resource group; false = use an existing one (lab accounts)"
+    type        = bool
+    default     = false
+}

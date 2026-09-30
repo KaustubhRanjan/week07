@@ -11,6 +11,11 @@ RUN pip install \
 
 COPY . .
 
+# Commit SHA passed in by the CI pipeline (--build-arg APP_VERSION=<sha>).
+# Exposed through /health so each slot shows exactly which build it runs.
+ARG APP_VERSION=local
+ENV APP_VERSION=${APP_VERSION}
+
 RUN useradd -m appuser \
     && chown -R appuser:appuser /app
 

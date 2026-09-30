@@ -197,3 +197,8 @@ cython_debug/
 .cursorindexingignore
 
 node_modules/
+# Terraform (state files contain passwords - never commit them)
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log

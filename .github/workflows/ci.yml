@@ -1,5 +1,7 @@
 # Updated for SIT722 Task 7.1P: added push trigger, bumped actions to Node 24 (fixes Node 20 deprecation warning)
 # Updated for SIT722 Task 7.2C: added frontend-test job so build-and-push waits on both backend and frontend tests
+# Updated for SIT722 Task 10.3HD: images carry APP_VERSION; added zero-downtime blue/green deploy of course-service
+#   (deploy to staging slot -> smoke test -> swap into production -> verify -> auto-rollback on failure)
 name: CI Pipeline
 
 on:
@@ -194,6 +196,7 @@ jobs:
             --platform linux/amd64 \
             -t ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }} \
             -t ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:latest \
+            --build-arg APP_VERSION=${{ github.sha }} \
             ./${{ matrix.service }}
 
       - name: Push Docker image with commit SHA
@@ -205,3 +208,124 @@ jobs:
         run: |
           docker push \
             ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:latest
+
+
+  # =========================================================
+  # Blue/Green Deploy: course-service  (SIT722 Task 10.3HD)
+  #
+  #   1. Deploy the new image (tagged with the commit SHA) to the
+  #      STAGING slot. Production keeps serving the old version.
+  #   2. Smoke test staging. If anything fails, the job stops here
+  #      and production is never touched.
+  #   3. Swap staging <-> production. Azure warms the new version
+  #      on /health first, then switches traffic with no downtime.
+  #   4. Verify production. If verification fails, swap back
+  #      automatically (the previous version is still in staging).
+  # =========================================================
+  deploy-course-service:
+    name: Blue/Green deploy course-service
+    runs-on: ubuntu-latest
+
+    needs:
+      - build-and-push
+
+    # Only release from main (push or manual run)
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+
+    # Never run two releases at the same time
+    concurrency:
+      group: deploy-course-service
+      cancel-in-progress: false
+
+    env:
+      RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP }}
+      WEBAPP_NAME: ${{ vars.COURSE_WEBAPP_NAME }}
+      IMAGE: ${{ vars.ACR_LOGIN_SERVER }}/koalatech-course-service:${{ github.sha }}
+      VERSION: ${{ github.sha }}
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Login to Azure
+        uses: azure/login@v3
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Look up slot URLs
+        run: |
+          PROD_HOST=$(az webapp show -g "$RESOURCE_GROUP" -n "$WEBAPP_NAME" --query defaultHostName -o tsv)
+          STAGING_HOST=$(az webapp show -g "$RESOURCE_GROUP" -n "$WEBAPP_NAME" --slot staging --query defaultHostName -o tsv)
+          echo "PROD_URL=https://${PROD_HOST}" >> "$GITHUB_ENV"
+          echo "STAGING_URL=https://${STAGING_HOST}" >> "$GITHUB_ENV"
+          echo "Production: https://${PROD_HOST}"
+          echo "Staging:    https://${STAGING_HOST}"
+
+      - name: Record current production version
+        run: |
+          echo "Production before release:"
+          curl -s --max-time 15 "$PROD_URL/health" || echo "(production not responding)"
+          echo
+
+      - name: Deploy new image to STAGING slot
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.WEBAPP_NAME }}
+          slot-name: staging
+          images: ${{ env.IMAGE }}
+
+      - name: Smoke test STAGING (release gate)
+        run: bash scripts/smoke_test.sh "$STAGING_URL" "$VERSION"
+
+      - name: Swap STAGING into PRODUCTION
+        id: swap
+        run: |
+          az webapp deployment slot swap \
+            -g "$RESOURCE_GROUP" \
+            -n "$WEBAPP_NAME" \
+            --slot staging \
+            --target-slot production
+          echo "Swap complete."
+
+      - name: Verify PRODUCTION
+        env:
+          MAX_ATTEMPTS: "12"
+        run: bash scripts/smoke_test.sh "$PROD_URL" "$VERSION"
+
+      - name: Automatic rollback (swap back) if production verification failed
+        if: failure() && steps.swap.outcome == 'success'
+        run: |
+          echo "Production verification failed - swapping the previous version back in."
+          az webapp deployment slot swap \
+            -g "$RESOURCE_GROUP" \
+            -n "$WEBAPP_NAME" \
+            --slot staging \
+            --target-slot production
+          curl -s --max-time 15 "$PROD_URL/health"; echo
+
+      - name: Release summary
+        if: always()
+        run: |
+          {
+            echo "## course-service blue/green release"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Commit | \`${VERSION}\` |"
+            echo "| Image | \`${IMAGE}\` |"
+            echo "| Production | ${PROD_URL} |"
+            echo "| Staging | ${STAGING_URL} |"
+            echo "| Job status | ${{ job.status }} |"
+            echo ""
+            echo "Production /health after release:"
+            echo '```json'
+            curl -s --max-time 15 "$PROD_URL/health" || echo "(no response)"
+            echo
+            echo '```'
+            echo "Staging /health after release (previous version, ready for rollback):"
+            echo '```json'
+            curl -s --max-time 15 "$STAGING_URL/health" || echo "(no response)"
+            echo
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,5 +1,7 @@
 # Week 07 – Continuous Integration with GitHub Actions
 
+> **SIT722 Task 10.3HD:** this repository now also includes a zero-downtime blue/green deployment of `course-service` to Azure App Service. See **[BLUE_GREEN.md](BLUE_GREEN.md)** for setup and demo steps.
+
 In this example, we extend the application from **Week 06 – Example 01** by introducing a Continuous Integration (CI) pipeline using GitHub Actions.
 
 The CI pipeline will:
